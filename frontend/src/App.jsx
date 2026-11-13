@@ -12,12 +12,16 @@ import {
   X,
   Eye,
   EyeOff,
+  Settings,
   CheckCircle2,
-  Search
+  Search,
+  Building2,
+  UserRound
 } from "lucide-react";
 import "./App.css";
 
-const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
+const API_URL =
+  import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
 
 const emptyProduct = {
   name: "",
@@ -29,20 +33,43 @@ const emptyProduct = {
   low_stock_threshold: ""
 };
 
+function formatDate(value) {
+  if (!value) return "—";
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) return "—";
+
+  return date.toLocaleString("en-IN", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit"
+  });
+}
+
 function App() {
-  const [token, setToken] = useState(localStorage.getItem("access_token"));
+  const [token, setToken] = useState(
+    localStorage.getItem("access_token")
+  );
+
   const [isSignup, setIsSignup] = useState(false);
   const [organizationName, setOrganizationName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+
   const [products, setProducts] = useState([]);
   const [dashboard, setDashboard] = useState(null);
+
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [productForm, setProductForm] = useState(emptyProduct);
+
   const [activePage, setActivePage] = useState("Overview");
   const [searchTerm, setSearchTerm] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -52,15 +79,31 @@ function App() {
       ...options,
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
+        ...(token
+          ? { Authorization: `Bearer ${token}` }
+          : {}),
         ...options.headers
       }
     });
 
-    const data = response.status === 204 ? null : await response.json();
+    let data = null;
+
+    if (response.status !== 204) {
+      const responseText = await response.text();
+
+      if (responseText) {
+        try {
+          data = JSON.parse(responseText);
+        } catch {
+          data = { detail: responseText };
+        }
+      }
+    }
 
     if (!response.ok) {
-      throw new Error(data?.detail || "Request failed");
+      throw new Error(
+        data?.detail || `Request failed (${response.status})`
+      );
     }
 
     return data;
@@ -78,12 +121,15 @@ function App() {
         apiRequest("/dashboard/")
       ]);
 
-      setProducts(productData);
+      setProducts(Array.isArray(productData) ? productData : []);
       setDashboard(dashboardData);
     } catch (err) {
       setError(err.message);
 
-      if (err.message.toLowerCase().includes("token")) {
+      if (
+        err.message.toLowerCase().includes("token") ||
+        err.message.toLowerCase().includes("credential")
+      ) {
         logout();
       }
     } finally {
@@ -92,34 +138,64 @@ function App() {
   }
 
   useEffect(() => {
-    if (token) loadData();
+    if (token) {
+      loadData();
+    }
   }, [token]);
 
   async function handleAuth(event) {
     event.preventDefault();
+
     setLoading(true);
     setError("");
 
-    const endpoint = isSignup ? "/auth/signup" : "/auth/login";
+    const endpoint = isSignup
+      ? "/auth/signup"
+      : "/auth/login";
+
     const payload = isSignup
-      ? { organization_name: organizationName, email, password }
-      : { email, password };
+      ? {
+          organization_name: organizationName,
+          email,
+          password
+        }
+      : {
+          email,
+          password
+        };
 
     try {
       const response = await fetch(`${API_URL}${endpoint}`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json"
+        },
         body: JSON.stringify(payload)
       });
 
-      const data = await response.json();
+      const responseText = await response.text();
+
+      let data = {};
+
+      try {
+        data = responseText ? JSON.parse(responseText) : {};
+      } catch {
+        throw new Error("Invalid response from server");
+      }
 
       if (!response.ok) {
-        throw new Error(data.detail || "Authentication failed");
+        throw new Error(
+          data.detail || "Authentication failed"
+        );
+      }
+
+      if (!data.access_token) {
+        throw new Error("Authentication token was not received");
       }
 
       localStorage.setItem("access_token", data.access_token);
       setToken(data.access_token);
+      setShowPassword(false);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -128,16 +204,20 @@ function App() {
   }
 
   function logout() {
-  localStorage.removeItem("access_token");
-  setToken(null);
-  setEmail("");
-  setPassword("");
-  setOrganizationName("");
-  setProducts([]);
-  setDashboard(null);
-  setActivePage("Overview");
-  setSearchTerm("");
-}
+    localStorage.removeItem("access_token");
+
+    setToken(null);
+    setEmail("");
+    setPassword("");
+    setOrganizationName("");
+    setProducts([]);
+    setDashboard(null);
+    setActivePage("Overview");
+    setSearchTerm("");
+    setError("");
+    setSuccess("");
+    setShowForm(false);
+  }
 
   function openAddForm() {
     setEditingId(null);
@@ -148,6 +228,7 @@ function App() {
 
   function openEditForm(product) {
     setEditingId(product.id);
+
     setProductForm({
       name: product.name,
       sku: product.sku,
@@ -155,21 +236,26 @@ function App() {
       quantity_on_hand: product.quantity_on_hand,
       cost_price: product.cost_price ?? "",
       selling_price: product.selling_price ?? "",
-      low_stock_threshold: product.low_stock_threshold ?? ""
+      low_stock_threshold:
+        product.low_stock_threshold ?? ""
     });
+
     setError("");
     setShowForm(true);
   }
 
   async function saveProduct(event) {
     event.preventDefault();
+
     setLoading(true);
     setError("");
     setSuccess("");
 
     const payload = {
       ...productForm,
-      quantity_on_hand: Number(productForm.quantity_on_hand),
+      quantity_on_hand: Number(
+        productForm.quantity_on_hand
+      ),
       cost_price:
         productForm.cost_price === ""
           ? null
@@ -186,7 +272,9 @@ function App() {
 
     try {
       await apiRequest(
-        editingId ? `/products/${editingId}` : "/products/",
+        editingId
+          ? `/products/${editingId}`
+          : "/products/",
         {
           method: editingId ? "PUT" : "POST",
           body: JSON.stringify(payload)
@@ -195,6 +283,7 @@ function App() {
 
       setShowForm(false);
       setProductForm(emptyProduct);
+
       setSuccess(
         editingId
           ? "Product updated successfully"
@@ -210,7 +299,11 @@ function App() {
   }
 
   async function deleteProduct(productId) {
-    if (!window.confirm("Are you sure you want to delete this product?")) {
+    if (
+      !window.confirm(
+        "Are you sure you want to delete this product?"
+      )
+    ) {
       return;
     }
 
@@ -223,6 +316,7 @@ function App() {
       });
 
       setSuccess("Product deleted successfully");
+
       await loadData();
     } catch (err) {
       setError(err.message);
@@ -231,6 +325,7 @@ function App() {
 
   function isLowStock(product) {
     const threshold = product.low_stock_threshold ?? 5;
+
     return product.quantity_on_hand <= threshold;
   }
 
@@ -238,23 +333,40 @@ function App() {
     const search = searchTerm.toLowerCase().trim();
 
     return (
-      product.name.toLowerCase().includes(search) ||
-      product.sku.toLowerCase().includes(search)
+      (product.name || "").toLowerCase().includes(search) ||
+      (product.sku || "").toLowerCase().includes(search)
     );
   });
+
+  const lowStockProducts = products.filter(isLowStock);
+
+  const accountInitial = (
+    email.split("@")[0].split(/[._-]/)[0].charAt(0) || "U"
+  ).toUpperCase();
 
   if (!token) {
     return (
       <main className="auth-page">
         <section className="auth-card">
+
           <div className="brand">
-          <span className="brand-icon">
-          <img src="/stockflow-logo.png" alt="StockFlow" className="stockflow-logo" />
-          </span>
-          <span>StockFlow</span>
+            <span className="brand-icon">
+              <img
+                src="/stockflow-logo.png"
+                alt="StockFlow"
+                className="stockflow-logo"
+              />
+            </span>
+            <span>StockFlow</span>
           </div>
+
           <div className="auth-heading">
-            <h1>{isSignup ? "Create your account" : "Welcome back"}</h1>
+            <h1>
+              {isSignup
+                ? "Create your account"
+                : "Welcome back"}
+            </h1>
+
             <p>
               {isSignup
                 ? "Start managing your inventory with ease."
@@ -262,11 +374,12 @@ function App() {
             </p>
           </div>
 
-          <form onSubmit={handleAuth}
-            autoComplete="off">
+          <form onSubmit={handleAuth} autoComplete="off">
+
             {isSignup && (
               <div className="form-group">
                 <label>Organization name</label>
+
                 <input
                   value={organizationName}
                   onChange={event =>
@@ -280,45 +393,70 @@ function App() {
 
             <div className="form-group">
               <label>Email address</label>
+
               <input
                 type="email"
                 name="login-email"
                 autoComplete="off"
                 value={email}
-                onChange={event => setEmail(event.target.value)}
+                onChange={event =>
+                  setEmail(event.target.value)
+                }
                 required
               />
             </div>
 
-              <div className="form-group">
-  <label>Password</label>
+            <div className="form-group">
+              <label>Password</label>
 
-  <div className="password-input-wrapper">
-    <input
-      type={showPassword ? "text" : "password"}
-      name="login-password"
-      autoComplete={isSignup ? "new-password" : "current-password"}
-      value={password}
-      onChange={event => setPassword(event.target.value)}
-      minLength={8}
-      required
-    />
+              <div className="password-input-wrapper">
+                <input
+                  type={
+                    showPassword ? "text" : "password"
+                  }
+                  name="login-password"
+                  autoComplete={
+                    isSignup
+                      ? "new-password"
+                      : "current-password"
+                  }
+                  value={password}
+                  onChange={event =>
+                    setPassword(event.target.value)
+                  }
+                  minLength={8}
+                  required
+                />
 
-    <button
-      type="button"
-      className="password-toggle"
-      onClick={() => setShowPassword(!showPassword)}
-      aria-label={showPassword ? "Hide password" : "Show password"}
-    >
-      {showPassword ? <EyeOff size={19} /> : <Eye size={19} />}
-    </button>
-  </div>
-</div>
+                <button
+                  type="button"
+                  className="password-toggle"
+                  onClick={() =>
+                    setShowPassword(!showPassword)
+                  }
+                  aria-label={
+                    showPassword
+                      ? "Hide password"
+                      : "Show password"
+                  }
+                >
+                  {showPassword
+                    ? <EyeOff size={19} />
+                    : <Eye size={19} />}
+                </button>
+              </div>
+            </div>
 
+            {error && (
+              <div className="error-message">
+                {error}
+              </div>
+            )}
 
-            {error && <div className="error-message">{error}</div>}
-
-            <button className="primary-button" disabled={loading}>
+            <button
+              className="primary-button"
+              disabled={loading}
+            >
               {loading
                 ? "Please wait..."
                 : isSignup
@@ -337,11 +475,15 @@ function App() {
               onClick={() => {
                 setIsSignup(!isSignup);
                 setError("");
+                setShowPassword(false);
               }}
             >
-              {isSignup ? "Sign in" : "Create an account"}
+              {isSignup
+                ? "Sign in"
+                : "Create an account"}
             </button>
           </div>
+
         </section>
       </main>
     );
@@ -349,6 +491,7 @@ function App() {
 
   return (
     <main className="app-layout">
+
       <style>{`
         .account-avatar-animated {
           display: flex;
@@ -362,17 +505,32 @@ function App() {
           font-weight: 700;
           font-size: 17px;
           text-transform: uppercase;
-          background: linear-gradient(135deg, #2563eb, #7c3aed, #06b6d4);
+          background: linear-gradient(
+            135deg,
+            #2563eb,
+            #7c3aed,
+            #06b6d4
+          );
           background-size: 200% 200%;
           box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.13);
-          animation: accountAvatarGlow 3s ease-in-out infinite,
-                     accountAvatarGradient 6s ease infinite;
+          animation:
+            accountAvatarGlow 3s ease-in-out infinite,
+            accountAvatarGradient 6s ease infinite;
         }
 
         @keyframes accountAvatarGlow {
-          0%, 100% { box-shadow: 0 0 0 3px rgba(99, 102, 241, .13), 0 0 0 0 rgba(99, 102, 241, 0); }
-          50% { box-shadow: 0 0 0 5px rgba(99, 102, 241, .20), 0 0 14px 2px rgba(99, 102, 241, .25); }
+          0%, 100% {
+            box-shadow:
+              0 0 0 3px rgba(99, 102, 241, .13),
+              0 0 0 0 rgba(99, 102, 241, 0);
+          }
+          50% {
+            box-shadow:
+              0 0 0 5px rgba(99, 102, 241, .20),
+              0 0 14px 2px rgba(99, 102, 241, .25);
+          }
         }
+
         @keyframes accountAvatarGradient {
           0% { background-position: 0% 50%; }
           50% { background-position: 100% 50%; }
@@ -394,8 +552,12 @@ function App() {
           line-height: 1;
           white-space: nowrap;
           cursor: pointer;
-          transition: background .2s ease, border-color .2s ease, transform .2s ease;
+          transition:
+            background .2s ease,
+            border-color .2s ease,
+            transform .2s ease;
         }
+
         .overview-view-all:hover {
           background: #eff6ff;
           border-color: #93c5fd;
@@ -411,6 +573,7 @@ function App() {
           padding-top: 18px;
           border-top: 1px solid #e8edf4;
         }
+
         .product-modal .modal-actions button {
           min-height: 40px;
           padding: 9px 18px;
@@ -420,23 +583,30 @@ function App() {
           font-weight: 600;
           line-height: 1.2;
           cursor: pointer;
-          transition: background .2s ease, border-color .2s ease, transform .2s ease;
+          transition:
+            background .2s ease,
+            border-color .2s ease,
+            transform .2s ease;
         }
+
         .product-modal .modal-actions .secondary-button {
           color: #334155;
           background: #fff;
           border: 1px solid #cbd5e1;
           box-shadow: none;
         }
+
         .product-modal .modal-actions .secondary-button:hover {
           color: #0f172a;
           background: #f1f5f9;
           border-color: #94a3b8;
         }
+
         .product-modal .modal-actions .primary-button:hover,
         .product-modal .modal-actions .secondary-button:hover {
           transform: translateY(-1px);
         }
+
         .product-modal .close-button {
           display: inline-flex;
           align-items: center;
@@ -450,31 +620,77 @@ function App() {
           color: #64748b;
           cursor: pointer;
         }
+
         .product-modal .close-button:hover {
           color: #0f172a;
           background: #f1f5f9;
         }
+
+        .settings-grid {
+          display: grid;
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          gap: 18px;
+        }
+
+        .settings-info-card {
+          padding: 22px;
+          border: 1px solid #e5eaf1;
+          border-radius: 12px;
+          background: #fff;
+        }
+
+        .settings-info-card h3 {
+          display: flex;
+          align-items: center;
+          gap: 9px;
+          margin: 0 0 16px;
+        }
+
+        .settings-info-card p {
+          margin: 9px 0;
+          color: #64748b;
+          overflow-wrap: anywhere;
+        }
+
+        .settings-info-card strong {
+          color: #1e293b;
+        }
+
+        @media (max-width: 650px) {
+          .settings-grid {
+            grid-template-columns: 1fr;
+          }
+        }
+
         @media (max-width: 520px) {
           .product-modal .modal-actions {
             flex-direction: column-reverse;
             align-items: stretch;
           }
+
           .product-modal .modal-actions button {
             width: 100%;
           }
         }
       `}</style>
+
       <aside className="sidebar">
+
         <div className="brand sidebar-brand">
-        <span className="brand-icon">
-       <img src="/stockflow-logo.png" alt="StockFlow" className="stockflow-logo" />
-       </span>
-       <span>StockFlow</span>
-       </div>
+          <span className="brand-icon">
+            <img
+              src="/stockflow-logo.png"
+              alt="StockFlow"
+              className="stockflow-logo"
+            />
+          </span>
+          <span>StockFlow</span>
+        </div>
 
         <p className="sidebar-label">WORKSPACE</p>
 
         <nav className="sidebar-nav">
+
           <button
             className={
               activePage === "Overview"
@@ -498,31 +714,51 @@ function App() {
             <Package size={18} />
             <span>Products</span>
           </button>
+
         </nav>
 
         <div className="sidebar-bottom">
+
           <div className="user-info">
             <div
               className="user-avatar account-avatar-animated"
               title={email}
               aria-label={`Account for ${email}`}
             >
-              {(email.split("@")[0].split(/[._-]/)[0].charAt(0) || "U").toUpperCase()}
+              {accountInitial}
             </div>
+
             <div>
               <strong>Account</strong>
               <span>{email}</span>
             </div>
           </div>
 
-          <button className="logout-button" onClick={logout}>
+          <button
+            className={
+              activePage === "Settings"
+                ? "nav-item active settings-nav-item"
+                : "nav-item settings-nav-item"
+            }
+            onClick={() => setActivePage("Settings")}
+          >
+            <Settings size={17} />
+            <span>Settings</span>
+          </button>
+
+          <button
+            className="logout-button"
+            onClick={logout}
+          >
             <LogOut size={17} />
             <span>Log out</span>
           </button>
+
         </div>
       </aside>
 
       <section className="main-content">
+
         <header className="topbar">
           <div>
             <p className="breadcrumb">
@@ -533,7 +769,12 @@ function App() {
         </header>
 
         <div className="page-content">
-          {error && <div className="error-message">{error}</div>}
+
+          {error && (
+            <div className="error-message">
+              {error}
+            </div>
+          )}
 
           {success && (
             <div className="success-message">
@@ -554,12 +795,17 @@ function App() {
               </div>
 
               <div className="stats-grid">
+
                 <div className="stat-card">
                   <span className="stat-icon green">
                     <Boxes size={21} />
                   </span>
+
                   <p>Total products</p>
-                  <h2>{dashboard?.total_products ?? 0}</h2>
+                  <h2>
+                    {dashboard?.total_products ?? 0}
+                  </h2>
+
                   <span className="stat-caption">
                     Products in your inventory
                   </span>
@@ -569,8 +815,12 @@ function App() {
                   <span className="stat-icon blue">
                     <Warehouse size={21} />
                   </span>
+
                   <p>Total stock quantity</p>
-                  <h2>{dashboard?.total_quantity ?? 0}</h2>
+                  <h2>
+                    {dashboard?.total_quantity ?? 0}
+                  </h2>
+
                   <span className="stat-caption">
                     Units currently available
                   </span>
@@ -580,15 +830,21 @@ function App() {
                   <span className="stat-icon gold">
                     <AlertTriangle size={21} />
                   </span>
+
                   <p>Low-stock products</p>
-                  <h2>{dashboard?.low_stock_count ?? 0}</h2>
+                  <h2>
+                    {dashboard?.low_stock_count ?? 0}
+                  </h2>
+
                   <span className="stat-caption">
                     Products needing attention
                   </span>
                 </div>
+
               </div>
 
               <section className="content-card">
+
                 <div className="section-heading">
                   <div>
                     <h2>
@@ -598,6 +854,7 @@ function App() {
                       />
                       Low-stock alerts
                     </h2>
+
                     <p>
                       Products that have reached their stock threshold.
                     </p>
@@ -649,12 +906,14 @@ function App() {
                     No low-stock products. Your inventory looks good.
                   </p>
                 )}
+
               </section>
             </>
           )}
 
           {activePage === "Products" && (
             <section className="content-card">
+
               <div className="section-heading">
                 <div>
                   <h2>All products</h2>
@@ -662,24 +921,28 @@ function App() {
                     Manage your organization's inventory.
                   </p>
                 </div>
-
               </div>
 
               <div className="product-search-section">
+
                 <div className="product-search-wrapper">
                   <Search size={18} />
+
                   <input
                     type="search"
                     className="product-search"
                     placeholder="Search by product name or SKU..."
                     value={searchTerm}
-                    onChange={event => setSearchTerm(event.target.value)}
+                    onChange={event =>
+                      setSearchTerm(event.target.value)
+                    }
                   />
                 </div>
 
                 <span className="product-count">
                   {filteredProducts.length} of {products.length} products
                 </span>
+
               </div>
 
               <div
@@ -699,6 +962,7 @@ function App() {
               </div>
 
               <div className="table-wrapper">
+
                 <table>
                   <thead>
                     <tr>
@@ -707,6 +971,8 @@ function App() {
                       <th>Quantity</th>
                       <th>Selling price</th>
                       <th>Status</th>
+                      <th>Created</th>
+                      <th>Last updated</th>
                       <th>Actions</th>
                     </tr>
                   </thead>
@@ -714,14 +980,17 @@ function App() {
                   <tbody>
                     {filteredProducts.map(product => (
                       <tr key={product.id}>
+
                         <td>
                           <strong>{product.name}</strong>
+
                           <span className="product-description">
                             {product.description}
                           </span>
                         </td>
 
                         <td>{product.sku}</td>
+
                         <td>{product.quantity_on_hand}</td>
 
                         <td>
@@ -747,10 +1016,21 @@ function App() {
                         </td>
 
                         <td>
+                          {formatDate(product.created_at)}
+                        </td>
+
+                        <td>
+                          {formatDate(product.updated_at)}
+                        </td>
+
+                        <td>
                           <div className="action-buttons">
+
                             <button
                               className="edit-button"
-                              onClick={() => openEditForm(product)}
+                              onClick={() =>
+                                openEditForm(product)
+                              }
                               title="Edit product"
                             >
                               <Pencil size={15} />
@@ -767,8 +1047,10 @@ function App() {
                               <Trash2 size={15} />
                               Delete
                             </button>
+
                           </div>
                         </td>
+
                       </tr>
                     ))}
                   </tbody>
@@ -781,6 +1063,96 @@ function App() {
                       : "No products yet. Add your first product."}
                   </p>
                 )}
+
+              </div>
+            </section>
+          )}
+
+          {activePage === "Settings" && (
+            <section className="content-card">
+
+              <div className="section-heading">
+                <div>
+                  <h2>Account settings</h2>
+                  <p>
+                    View your account and inventory information.
+                  </p>
+                </div>
+              </div>
+
+              <div className="settings-grid">
+
+                <div className="settings-info-card">
+                  <h3>
+                    <UserRound size={19} />
+                    Account information
+                  </h3>
+
+                  <p>
+                    <strong>Email:</strong>
+                  </p>
+
+                  <p>{email}</p>
+
+                  <p>
+                    <strong>Account status:</strong>
+                  </p>
+
+                  <p>
+                    <span className="status-badge healthy">
+                      Active
+                    </span>
+                  </p>
+                </div>
+
+                <div className="settings-info-card">
+                  <h3>
+                    <Building2 size={19} />
+                    Organization
+                  </h3>
+
+                  <p>
+                    <strong>Organization name:</strong>
+                  </p>
+
+                  <p>
+                    {organizationName ||
+                      "Organization information is managed by your account."}
+                  </p>
+                </div>
+
+                <div className="settings-info-card">
+                  <h3>
+                    <Package size={19} />
+                    Inventory summary
+                  </h3>
+
+                  <p>
+                    <strong>Total products:</strong>{" "}
+                    {products.length}
+                  </p>
+
+                  <p>
+                    <strong>Low-stock products:</strong>{" "}
+                    {lowStockProducts.length}
+                  </p>
+                </div>
+
+                <div className="settings-info-card">
+                  <h3>
+                    <Settings size={19} />
+                    Application
+                  </h3>
+
+                  <p>
+                    <strong>Application:</strong> StockFlow
+                  </p>
+
+                  <p>
+                    <strong>Version:</strong> MVP
+                  </p>
+                </div>
+
               </div>
             </section>
           )}
@@ -790,6 +1162,7 @@ function App() {
               Loading inventory...
             </p>
           )}
+
         </div>
       </section>
 
@@ -803,12 +1176,18 @@ function App() {
           }}
         >
           <section className="product-modal">
+
             <div className="section-heading">
               <div>
                 <h2>
-                  {editingId ? "Edit product" : "Add a product"}
+                  {editingId
+                    ? "Edit product"
+                    : "Add a product"}
                 </h2>
-                <p>Enter the product details below.</p>
+
+                <p>
+                  Enter the product details below.
+                </p>
               </div>
 
               <button
@@ -821,9 +1200,12 @@ function App() {
             </div>
 
             <form onSubmit={saveProduct}>
+
               <div className="form-grid">
+
                 <div className="form-group">
                   <label>Product name *</label>
+
                   <input
                     value={productForm.name}
                     onChange={event =>
@@ -838,6 +1220,7 @@ function App() {
 
                 <div className="form-group">
                   <label>SKU *</label>
+
                   <input
                     value={productForm.sku}
                     onChange={event =>
@@ -852,6 +1235,7 @@ function App() {
 
                 <div className="form-group full-width">
                   <label>Description</label>
+
                   <input
                     value={productForm.description}
                     onChange={event =>
@@ -865,6 +1249,7 @@ function App() {
 
                 <div className="form-group">
                   <label>Quantity on hand *</label>
+
                   <input
                     type="number"
                     min="0"
@@ -882,6 +1267,7 @@ function App() {
 
                 <div className="form-group">
                   <label>Low stock threshold</label>
+
                   <input
                     type="number"
                     min="0"
@@ -898,6 +1284,7 @@ function App() {
 
                 <div className="form-group">
                   <label>Cost price</label>
+
                   <input
                     type="number"
                     min="0"
@@ -914,6 +1301,7 @@ function App() {
 
                 <div className="form-group">
                   <label>Selling price</label>
+
                   <input
                     type="number"
                     min="0"
@@ -927,9 +1315,11 @@ function App() {
                     }
                   />
                 </div>
+
               </div>
 
               <div className="modal-actions">
+
                 <button
                   type="button"
                   className="secondary-button cancel-product-button"
@@ -949,11 +1339,13 @@ function App() {
                       ? "Save Changes"
                       : "Add Product"}
                 </button>
+
               </div>
             </form>
           </section>
         </div>
       )}
+
     </main>
   );
 }

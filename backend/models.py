@@ -1,5 +1,3 @@
-from datetime import datetime
-
 from sqlalchemy import (
     Column,
     DateTime,
@@ -23,6 +21,11 @@ class Organization(Base):
     name = Column(String(150), nullable=False)
     default_low_stock_threshold = Column(Integer, default=5, nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
 
     users = relationship("User", back_populates="organization")
     products = relationship("Product", back_populates="organization")
@@ -40,6 +43,11 @@ class User(Base):
     email = Column(String(255), unique=True, index=True, nullable=False)
     hashed_password = Column(String(255), nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
 
     organization = relationship("Organization", back_populates="users")
 

@@ -1,3 +1,4 @@
+from datetime import datetime
 from decimal import Decimal
 from typing import Optional
 
@@ -58,5 +59,7 @@ class ProductResponse(BaseModel):
     cost_price: Optional[Decimal]
     selling_price: Optional[Decimal]
     low_stock_threshold: Optional[int]
+    created_at: datetime
+    updated_at: datetime
 
     model_config = ConfigDict(from_attributes=True)

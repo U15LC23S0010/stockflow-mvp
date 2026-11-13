@@ -1,6 +1,6 @@
 StockFlow – Inventory Management System
 
-StockFlow is a multi-tenant inventory management application that helps organizations manage products, monitor stock levels, and identify low-stock items through a simple dashboard.
+StockFlow is a multi-tenant inventory management application that helps organizations manage products, monitor stock levels, and identify low-stock items through an intuitive dashboard.
 
 Features
 
@@ -63,43 +63,53 @@ Prerequisites
 - Node.js and npm
 - PostgreSQL
 
-1. Clone the repository
+1. Clone the Repository
 
 git clone https://github.com/U15LC23S0010/stockflow-mvp.git
 cd stockflow-mvp
 
 2. Backend Setup
 
+Navigate to the backend directory:
+
 cd backend
+
+Create a virtual environment:
+
 py -m venv .venv
 
 Activate the virtual environment on Windows:
 
 .venv\Scripts\Activate.ps1
 
-Install dependencies:
+Install the dependencies:
 
 pip install -r requirements.txt
 
-Create a ".env" file in the backend directory and configure your local PostgreSQL database credentials and JWT settings according to the backend configuration.
+Create a ".env" file in the backend directory and configure your PostgreSQL database credentials and JWT settings according to the backend configuration.
 
-Start the backend:
+Start the backend server:
 
 py -m uvicorn main:app --reload
 
-Backend API: "http://127.0.0.1:8000"
-
-API documentation: "http://127.0.0.1:8000/docs"
+- Backend API: http://127.0.0.1:8000
+- API Documentation: http://127.0.0.1:8000/docs
 
 3. Frontend Setup
 
-Open another terminal:
+Open another terminal and navigate to the frontend directory:
 
 cd frontend
+
+Install dependencies:
+
 npm install
+
+Start the development server:
+
 npm run dev
 
-Frontend: "http://localhost:5173"
+Frontend: http://localhost:5173
 
 Low-Stock Logic
 
